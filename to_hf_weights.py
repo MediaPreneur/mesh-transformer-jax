@@ -227,11 +227,11 @@ def leave_name_to_hf_layer_id(leaf_name: str):
 def reshard(x, old_shape, do_shard_ln, do_shard_bias):
     # reshards using numpy arrays so as to not fill up jax memory
     if len(x.shape) == 1:
-        out = np.array(x[0:1])
+        out = np.array(x[:1])
 
     elif len(x.shape) == 2:
         if do_shard_ln:
-            out = np.array(x[0:1])
+            out = np.array(x[:1])
         elif do_shard_bias:
             out = np.reshape(np.sum(x, axis=0), old_shape)
         else:
@@ -438,12 +438,17 @@ def save_config_to_hf_format(params: dict, torch_dtype: str, output_path: FluidP
         "transformers_version": "4.10.0.dev0",
         "tokenizer_class": "GPT2Tokenizer",
         "task_specific_params": {
-            "text-generation": {"do_sample": True, "temperature": 1.0, "max_length": 50}
+            "text-generation": {
+                "do_sample": True,
+                "temperature": 1.0,
+                "max_length": 50,
+            }
         },
-        "torch_dtype": str(torch_dtype).split(".")[-1],
+        "torch_dtype": torch_dtype.split(".")[-1],
         "use_cache": True,
         "vocab_size": params["n_vocab"],
     }
+
 
     with (output_path / "config.json").open("w") as f:
         json.dump(config, f, indent=2)

@@ -28,16 +28,15 @@ class TPUCluster:
 
         start = time.time()
 
-        for i in range(node_count):
-            self.nodes.append(NetworkRunner.options(max_concurrency=2).remote(mesh_shape, model))
+        self.nodes.extend(
+            NetworkRunner.options(max_concurrency=2).remote(mesh_shape, model)
+            for _ in range(node_count)
+        )
 
         for n in self.nodes:
             n.run.remote()
 
-        params = []
-        for n in self.nodes:
-            params.append(n.get_params.remote())
-
+        params = [n.get_params.remote() for n in self.nodes]
         self.param_count = ray.get(params)[0]
         print(f"Ray actors created in {time.time() - start:.06}s")
 
@@ -45,12 +44,15 @@ class TPUCluster:
     def train(self, data):
         data_chunks = np.array_split(data, len(self.nodes), axis=1)
 
-        res = []
-        for n, d in zip(self.nodes, data_chunks):
-            res.append(n.train.remote({
-                "obs": d[:, :, :-1],
-                "target": d[:, :, 1:],
-            }))
+        res = [
+            n.train.remote(
+                {
+                    "obs": d[:, :, :-1],
+                    "target": d[:, :, 1:],
+                }
+            )
+            for n, d in zip(self.nodes, data_chunks)
+        ]
 
         res = ray.get(res)
 
@@ -65,6 +67,7 @@ class TPUCluster:
 
     @func_set_timeout(600)
     def eval(self, data):
+        res = []
         if isinstance(data, dict):
             data_chunked = [{} for _ in self.nodes]
             for k, v in data.items():
@@ -72,10 +75,7 @@ class TPUCluster:
                 for idx, v_chunk in enumerate(v_chunks):
                     data_chunked[idx][k] = v_chunk
 
-            res = []
-            for n, d in zip(self.nodes, data_chunked):
-                res.append(n.eval.remote(d))
-
+            res.extend(n.eval.remote(d) for n, d in zip(self.nodes, data_chunked))
             total = 0
             correct = 0
             last_correct = 0
@@ -115,12 +115,15 @@ class TPUCluster:
         else:
             data_chunks = np.array_split(data, len(self.nodes), axis=0)
 
-            res = []
-            for n, d in zip(self.nodes, data_chunks):
-                res.append(n.eval.remote({
-                    "obs": d[:, :-1],
-                    "target": d[:, 1:],
-                }))
+            res.extend(
+                n.eval.remote(
+                    {
+                        "obs": d[:, :-1],
+                        "target": d[:, 1:],
+                    }
+                )
+                for n, d in zip(self.nodes, data_chunks)
+            )
 
             return np.array([i["loss"] for i in ray.get(res)]).mean()
 
@@ -129,22 +132,19 @@ class TPUCluster:
         context = np.array_split(context, len(self.nodes), axis=0)
         ctx_length = np.array_split(ctx_length, len(self.nodes), axis=0)
 
-        res = []
-        for n, ctx, l in zip(self.nodes, context, ctx_length):
-            res.append(n.generate.remote((
-                ctx,
-                np.ones(len(ctx), dtype=np.uint32) * l,
-                gen_len
-            )))
+        res = [
+            n.generate.remote(
+                (ctx, np.ones(len(ctx), dtype=np.uint32) * l, gen_len)
+            )
+            for n, ctx, l in zip(self.nodes, context, ctx_length)
+        ]
 
         return np.concatenate([i[1][0][:, :, 0] for i in ray.get(res)], axis=0)
 
     @func_set_timeout(600)
     def move(self):
         start = time.time()
-        res = []
-        for node in self.nodes:
-            res.append(node.move_params.remote())
+        res = [node.move_params.remote() for node in self.nodes]
         ray.get(res)
 
         print(f"Moved weights to TPU in {time.time() - start:.06}s")
@@ -158,9 +158,10 @@ class TPUCluster:
 
         # do replicated checkpoint reading
         start = time.time()
-        res = []
-        for node in self.nodes:
-            res.append(node.load_ckpt.remote(f"gs://{bucket}/{path}/step_{ckpt_step}/"))
+        res = [
+            node.load_ckpt.remote(f"gs://{bucket}/{path}/step_{ckpt_step}/")
+            for node in self.nodes
+        ]
 
         # make sure they all read from the same checkpoint
         step = np.array(ray.get(res))
@@ -199,11 +200,20 @@ class TPUCluster:
         res = []
 
         if self.version == 1:
-            for shard_id, node in zip(range(self.mp), itertools.cycle(self.nodes)):
-                res.append(node.write_ckpt.remote(f"gs://{bucket}/{path}/step_{step}/", shard_id))
+            res.extend(
+                node.write_ckpt.remote(
+                    f"gs://{bucket}/{path}/step_{step}/", shard_id
+                )
+                for shard_id, node in zip(
+                    range(self.mp), itertools.cycle(self.nodes)
+                )
+            )
+
         elif self.version == 2:
-            for node in self.nodes:
-                res.append(node.write_ckpt.remote(f"gs://{bucket}/{path}/step_{step}", 0))
+            res.extend(
+                node.write_ckpt.remote(f"gs://{bucket}/{path}/step_{step}", 0)
+                for node in self.nodes
+            )
 
         ray.get(res)
         print(f"Wrote checkpoint in {time.time() - start:.06}s")

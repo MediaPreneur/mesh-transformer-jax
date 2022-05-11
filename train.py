@@ -27,8 +27,7 @@ def parse_args():
 
     parser.add_argument("--version", type=int, default=1, help="Choose which model version to use")
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
@@ -95,12 +94,13 @@ if __name__ == "__main__":
 
     global_val_batch = int(per_replica_batch * tpu_size // cores_per_replica * params.get("val_batch_multiplier", 1))
 
-    val_sets = {}
+    val_sets = {
+        k: TFRecordNewInputs(
+            f"data/{v}", batch_size=(global_val_batch,), sample_size=seq
+        )
+        for k, v in params['val_set'].items()
+    }
 
-    for k, v in params['val_set'].items():
-        val_sets[k] = TFRecordNewInputs(f"data/{v}",
-                                        batch_size=(global_val_batch,),
-                                        sample_size=seq)
 
     # use dynamic seq length unless pe is fixed
     adaptor = EvalHarnessAdaptor(t,
@@ -135,17 +135,21 @@ if __name__ == "__main__":
                    init=False,
                    delete_old=step % keep_every != 0)
 
-            if step == total_steps:
-                print("training completed!")
-                exit()
+        if step == total_steps:
+            print("training completed!")
+            exit()
 
         if step % val_every == 0:
             for name, val_set in val_sets.items():
-                val_loss = []
-                for i, _ in tqdm(zip(val_set.sample_once(), range(val_batches)),
-                                 desc=f"validation for step {step}, set {name}",
-                                 total=val_batches):
-                    val_loss.append(t.eval(i))
+                val_loss = [
+                    t.eval(i)
+                    for i, _ in tqdm(
+                        zip(val_set.sample_once(), range(val_batches)),
+                        desc=f"validation for step {step}, set {name}",
+                        total=val_batches,
+                    )
+                ]
+
                 val_loss = np.array(val_loss).mean()
                 print(f"validation loss for step {step}, set {name}: {val_loss}")
 

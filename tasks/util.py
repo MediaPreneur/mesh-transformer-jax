@@ -15,9 +15,8 @@ def shrink_seq(examples, min_seq=None):
 
     new_length = length // 2
 
-    if min_seq is not None:
-        if new_length < min_seq:
-            return examples
+    if min_seq is not None and new_length < min_seq:
+        return examples
 
     max_length = np.max(examples["eval_mask"] * np.arange(0, length)) + 1
 

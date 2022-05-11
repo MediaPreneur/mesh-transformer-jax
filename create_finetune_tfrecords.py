@@ -46,8 +46,11 @@ def parse_args():
     cleaning_args.add_argument("--normalize-with-ftfy", action="store_true", help="Normalize text with ftfy")
     cleaning_args.add_argument("--normalize-with-wikitext-detokenize",
                                action="store_true", help="Use wikitext detokenizer")
-    minu_help = "Exclude repetitive documents made up of < MIN_UNIQUE_TOKENS unique tokens. These can produce large gradients."
-    minu_help += " Set <= 0 to disable. If enabled, 200 is a good default value. (Default: 0)"
+    minu_help = (
+        "Exclude repetitive documents made up of < MIN_UNIQUE_TOKENS unique tokens. These can produce large gradients."
+        + " Set <= 0 to disable. If enabled, 200 is a good default value. (Default: 0)"
+    )
+
     cleaning_args.add_argument("--min-unique-tokens", type=int, default=0,
                                help=minu_help)
 
@@ -120,7 +123,7 @@ def wikitext_detokenizer(string):
     string = string.replace("= = = =", "====")
     string = string.replace("= = =", "===")
     string = string.replace("= =", "==")
-    string = string.replace(" " + chr(176) + " ", chr(176))
+    string = string.replace(f" {chr(176)} ", chr(176))
     string = string.replace(" \n", "\n")
     string = string.replace("\n ", "\n")
     string = string.replace(" N ", " 1 ")
@@ -186,8 +189,7 @@ def prep_and_tokenize_generator(string_iterable, encoder, normalize_with_ftfy, n
             doc = ftfy.fix_text(doc, normalization='NFKC')
         if normalize_with_wikitext_detokenize:
             doc = wikitext_detokenizer(doc)
-        tokens = encoder.encode(doc) + [encoder.eos_token_id]
-        yield tokens
+        yield encoder.encode(doc) + [encoder.eos_token_id]
 
 
 def file_to_tokenized_docs_generator(file_path, encoder, args):
@@ -200,12 +202,12 @@ def file_to_tokenized_docs_generator(file_path, encoder, args):
     string_iterable = reader.stream_data(threaded=False)
     string_iterable = eot_splitting_generator(string_iterable, encoder)
 
-    token_list_gen = prep_and_tokenize_generator(string_iterable,
-                                                 encoder,
-                                                 normalize_with_ftfy=args.normalize_with_ftfy,
-                                                 normalize_with_wikitext_detokenize=args.normalize_with_wikitext_detokenize
-                                                 )
-    return token_list_gen
+    return prep_and_tokenize_generator(
+        string_iterable,
+        encoder,
+        normalize_with_ftfy=args.normalize_with_ftfy,
+        normalize_with_wikitext_detokenize=args.normalize_with_wikitext_detokenize,
+    )
 
 
 def read_files_to_tokenized_docs(files, args, encoder):
@@ -274,7 +276,7 @@ def create_tfrecords(files, args):
     all_sequences_across_epochs.extend(full_seqs)
 
     # ep 2+
-    for ep_ix in range(1, args.n_repack_epochs):
+    for _ in range(1, args.n_repack_epochs):
         # re-shuffle
         if not args.preserve_data_order:
             random.shuffle(docs)

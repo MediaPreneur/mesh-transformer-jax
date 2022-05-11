@@ -63,7 +63,7 @@ def complete():
 
         return _corsify_actual_response(jsonify({"completion": response_queue.get()}))
     else:
-        raise RuntimeError("Weird - don't know how to handle method {}".format(request.method))
+        raise RuntimeError(f"Weird - don't know how to handle method {request.method}")
 
 
 def parse_args():
@@ -71,8 +71,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default=None, help="Config file location")
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":

@@ -21,8 +21,7 @@ def parse_args():
     parser.add_argument("--ckpt-step", type=int, default=-1, help="Step number of the checkpoint to convert (if not specified, converts the most recent checkpoint)")
     parser.add_argument("--f16", default=False, action="store_true", help="Convert to float16 (instead of bfloat16)")
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
@@ -56,10 +55,7 @@ if __name__ == "__main__":
     with open(f"gs://{bucket}/{model_dir}/meta.json", "r") as f:
         meta = json.load(f)
 
-    if args.ckpt_step > -1:
-        ckpt_step = args.ckpt_step
-    else:
-        ckpt_step = meta["checkpoints"][-1]
+    ckpt_step = args.ckpt_step if args.ckpt_step > -1 else meta["checkpoints"][-1]
     print(f"using checkpoint {ckpt_step}")
 
     with jax.experimental.maps.mesh(devices, ('dp', 'mp')):

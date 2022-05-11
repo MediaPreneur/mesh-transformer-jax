@@ -43,8 +43,7 @@ def parse_args():
     parser.add_argument("--tune-model-path", type=str, default=None, help="Base model to finetune")
     parser.add_argument("--fresh-opt", default=False, action="store_true", help="Use a newly initialized optimizer, ignoring any optimizer state saved in the base checkpoint")
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 def save(network, step, bucket, path, mp, aux=None, keep_n=3, delete_old=True):

@@ -34,7 +34,7 @@ def index_weights(weights, idx):
 def write(x, ckpt_dir):
     # start = time.time()
     idx, i = x
-    file_path = ckpt_dir + f"{idx}.npz"
+    file_path = f"{ckpt_dir}{idx}.npz"
     for _ in range(3):
         try:
             with open(file_path, "wb") as f:
@@ -82,13 +82,12 @@ def write_ckpt(pytree, dir, shard):
 def read_shard(ckpt_dir):
     out = []
     for idx in range(16):
-        file_path = ckpt_dir + f"{idx}.npz"
+        file_path = f"{ckpt_dir}{idx}.npz"
         with open(file_path, "rb") as f:
             buf = f.read()
             f_io = io.BytesIO(buf)
             deserialized = np.load(f_io)
-            for i in deserialized:
-                out.append(deserialized[i])
+            out.extend(deserialized[i] for i in deserialized)
     return out
 
 
@@ -96,7 +95,7 @@ def reshard(x, old_shape):
     if len(x.shape) == 1:
         # print("epoch")
         # print(x)
-        out = x[0:1]
+        out = x[:1]
 
     elif len(x.shape) == 2:
         # print(f"LN/bias {x.shape}")
@@ -105,10 +104,10 @@ def reshard(x, old_shape):
         if (x[1:] == x[-1]).all():
             # print("LN")
             if (x[1:] == 0).all() or (x[1:] == 1).all():
-                out = x[0:1]
+                out = x[:1]
             else:
                 # print("shard bias")
-                out = x[0:1] * x.shape[0] / old_shape[0]
+                out = x[:1] * x.shape[0] / old_shape[0]
         else:
             # print("bias")
             out = x.reshape(old_shape)
@@ -192,11 +191,11 @@ def read_ckpt_lowmem(pytree, dir, shards_in, shards_out=None, load_opt=True):
 
         for file_index in range(pieces):
             array_keys = [*np.load(f"{dir}shard_0/{file_index}.npz").keys()]
-            for array_index in range(len(array_keys)):
+            for array_key in array_keys:
                 unstacked = []
                 for shard_index in range(shards_in):
                     npz = np.load(f"{dir}shard_{shard_index}/{file_index}.npz")
-                    array = npz[array_keys[array_index]]
+                    array = npz[array_key]
                     if array.dtype == 'V2':
                         array.dtype = jnp.bfloat16
                     unstacked.append(array)
@@ -246,10 +245,7 @@ def parallel_read(old, fname, validate=True):
     else:
         loaded = np.load(fname, mmap_mode='r')
 
-    new_vals = []
-    for i in loaded:
-        new_vals.append(loaded[i])
-
+    new_vals = [loaded[i] for i in loaded]
     assert len(new_vals) == len(old_vals), "Incompatible checkpoint"
 
     for o, n in zip(new_vals, old_vals):
@@ -299,16 +295,24 @@ def write_ckpt_v2(model_state, dir):
         }
 
         print("step:", model_state["step"])
-        with open(dir + "/meta.json", "w") as f:
+        with open(f"{dir}/meta.json", "w") as f:
             json.dump(meta, f)
         print(f"meta written in {time.time() - start:.06}s")
 
     start = time.time()
-    parallel_write(jax.tree_flatten(model_state["params"])[0], dir + f"/params/shard_{jax.host_id()}.npz")
+    parallel_write(
+        jax.tree_flatten(model_state["params"])[0],
+        f"{dir}/params/shard_{jax.host_id()}.npz",
+    )
+
     head_print(f"params written in {time.time() - start:.06}s")
 
     start = time.time()
-    parallel_write(jax.tree_flatten(model_state["opt_state"])[0], dir + f"/opt_state/shard_{jax.host_id()}.npz")
+    parallel_write(
+        jax.tree_flatten(model_state["opt_state"])[0],
+        f"{dir}/opt_state/shard_{jax.host_id()}.npz",
+    )
+
     head_print(f"opt_state written in {time.time() - start:.06}s")
 
 
@@ -379,7 +383,7 @@ def read_sharded_v2(state, dir, checkpoint_hosts, state_shard):
 
 def load_ckpt_v2(model_state, dir, state_shard, load_opt):
     start = time.time()
-    with open(dir + "meta.json", "r") as f:
+    with open(f"{dir}meta.json", "r") as f:
         meta = json.load(f)
 
     ckpt_hosts = meta["total_hosts"]
@@ -391,20 +395,26 @@ def load_ckpt_v2(model_state, dir, state_shard, load_opt):
     }
 
     start = time.time()
-    new_state["params"] = read_sharded_v2(model_state["params"],
-                                          dir + "params",
-                                          ckpt_hosts,
-                                          state_shard["params"])
+    new_state["params"] = read_sharded_v2(
+        model_state["params"],
+        f"{dir}params",
+        ckpt_hosts,
+        state_shard["params"],
+    )
+
     head_print(f"params loaded in {time.time() - start:.06}s")
 
     if not load_opt:
         return new_state
 
     start = time.time()
-    new_state["opt_state"] = read_sharded_v2(model_state["opt_state"],
-                                             dir + "opt_state",
-                                             ckpt_hosts,
-                                             state_shard["opt_state"])
+    new_state["opt_state"] = read_sharded_v2(
+        model_state["opt_state"],
+        f"{dir}opt_state",
+        ckpt_hosts,
+        state_shard["opt_state"],
+    )
+
     head_print(f"opt_state loaded in {time.time() - start:.06}s")
 
     return new_state

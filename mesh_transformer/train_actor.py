@@ -16,7 +16,7 @@ class NetworkRunner(object):
         self.output_q = Queue(maxsize=1)
 
     def run(self):
-        print(f"jax runtime initialization starting")
+        print("jax runtime initialization starting")
         import jax
         from jax.experimental.maps import thread_resources, ResourceEnv, Mesh
         import haiku as hk

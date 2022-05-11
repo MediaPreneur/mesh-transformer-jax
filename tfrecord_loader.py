@@ -22,11 +22,7 @@ class TFRecordLoader:
         # self.seq = sample_size
         self.parse_fn = parse_fn
 
-        if map_fn:
-            self.map_fn = map_fn
-        else:
-            self.map_fn = lambda x: x
-
+        self.map_fn = map_fn or (lambda x: x)
         self.sample_fn = self.sample_once()
 
     def reset(self):
@@ -97,7 +93,7 @@ class TFRecordWIT(TFRecordLoader):
             tokenizer = self.tokenizer
 
             def decode(x):
-                return tokenizer(["<|endoftext|>" + i.decode() for i in x])["input_ids"]
+                return tokenizer([f"<|endoftext|>{i.decode()}" for i in x])["input_ids"]
 
             texts = [
                 decode(example["context_page_description"]),
@@ -136,9 +132,7 @@ class TFRecordWIT(TFRecordLoader):
                 "dalle": tf.io.FixedLenFeature([1024], tf.int64),
             }
 
-            parsed_features = tf.io.parse_single_example(example_proto, features)
-
-            return parsed_features
+            return tf.io.parse_single_example(example_proto, features)
 
         super().__init__(index_fname, batch_size, tf_parse, map_fn, restore_state=restore_state)
 
@@ -150,7 +144,7 @@ if __name__ == "__main__":
     #     break
 
     d = TFRecordWIT("data/wit_dalle.train.index", (8, 32))
-    for idx, i in enumerate(d.sample_once()):
+    for i in d.sample_once():
         print(i)
         break
 

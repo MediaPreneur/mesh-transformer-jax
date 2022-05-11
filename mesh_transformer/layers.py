@@ -30,10 +30,7 @@ class ReplicatedLayerNorm(hk.Module):
         mean = jnp.broadcast_to(mean, inputs.shape)
 
         inv = scale * jax.lax.rsqrt(variance + 1e-5)
-        if self.offset:
-            return inv * (inputs - mean) + offset
-        else:
-            return inv * (inputs - mean)
+        return inv * (inputs - mean) + offset if self.offset else inv * (inputs - mean)
 
 
 class RMSNorm(hk.Module):
@@ -115,14 +112,11 @@ class RelativePositionEmbs(hk.Module):
         bcast_iota = jax.lax.broadcasted_iota(jnp.int32, (num_buckets, 1, 1), 0)
         rp_bucket_one_hot = jnp.array(rp_bucket[jnp.newaxis, Ellipsis] == bcast_iota).astype(
             relative_attention_bias.dtype)
-        # --> shape (qlen, klen, num_heads)
-        values = jax.lax.dot_general(
+        return jax.lax.dot_general(
             relative_attention_bias,
             rp_bucket_one_hot,
-            (
-                ((1,), (0,)),  # rhs, lhs contracting dims
-                ((), ())))  # no batched dims
-        return values
+            (((1,), (0,)), ((), ())),  # rhs, lhs contracting dims
+        )
 
 
 def fixed_pos_embedding(x, seq_dim=0):
@@ -220,9 +214,7 @@ class EmbeddingShardV2(hk.Module):
         input_onehot = jax.nn.one_hot(x, self.in_dim)
         input_onehot = maybe_shard(input_onehot, P("dp", None, "mp"))
 
-        proj_out = self.proj(input_onehot)
-
-        return proj_out
+        return self.proj(input_onehot)
 
 
 # We actually combine the FF and dense in one layer (i.e. compute in parallel) to minimize all reduces
@@ -588,7 +580,7 @@ class ProjectionShard(hk.Module):
 
         loss += (1e-4 * jnp.square(jnp.log(sum_exp_logits)) * z_loss).mean()
 
-        correct = (0.0 == predicted_logits)
+        correct = predicted_logits == 0.0
 
         return loss, correct
 
@@ -622,5 +614,5 @@ class Projection(hk.Module):
         loss = jnp.log(sum_exp_logits) - predicted_logits
 
         loss += (1e-4 * jnp.square(jnp.log(sum_exp_logits)) * z_loss).mean()
-        correct = (0.0 == predicted_logits)
+        correct = predicted_logits == 0.0
         return loss, correct

@@ -127,12 +127,17 @@ def get_connection(
         zone,
 ):
     info = check_tpu(name, zone)
-    outputs = []
-    for i in info["networkEndpoints"]:
-        outputs.append(Connection(i["ipAddress"],
-                                  connect_kwargs={
-                                      "key_filename": os.path.expanduser('~/.ssh/google_compute_engine'), }))
-    return outputs
+    return [
+        Connection(
+            i["ipAddress"],
+            connect_kwargs={
+                "key_filename": os.path.expanduser(
+                    '~/.ssh/google_compute_engine'
+                ),
+            },
+        )
+        for i in info["networkEndpoints"]
+    ]
 
 
 def start_ray(conn, address, version=1):

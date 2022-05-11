@@ -33,9 +33,7 @@ def get_gptj_model():
     return gptj_model
 
 def timer(start_time=None):
-    if not start_time:
-        return time.time()
-    return time.time() - start_time
+    return time.time() - start_time if start_time else time.time()
 
 
 class GPTJ:
@@ -76,7 +74,7 @@ class GPTJ:
             self.total_batch = self.params['per_replica_batch'] * jax.device_count() // self.params['cores_per_replica'] * 8
             maps.thread_resources.env = maps.ResourceEnv(maps.Mesh(self.devices, ('dp', 'mp')))
             network = CausalTransformer(self.params)
-            logger.info(f'Loading Checkpoint')
+            logger.info('Loading Checkpoint')
             network.state = read_ckpt(network.state, "/app/model/", self.devices.shape[1])
             logger.info(f"GPTJ Network loaded in {timer(start):.06} secs. Total Batch Size: {self.total_batch}")
             del network.state["opt_state"]
@@ -126,7 +124,7 @@ class GPTJ:
         return samples
     
     def infer_batch(self, batch, **kwargs):
-        logger.info(f'Starting Inference on Batch')
+        logger.info('Starting Inference on Batch')
         batch_items = {'tokens': [], 'lengths': [], 'top_p': [], 'top_k': [], 'temp': []}
         max_lengths, contexts = [], []
         for req in batch:
@@ -139,12 +137,12 @@ class GPTJ:
             batch_items['temp'].append(req['temp'])
             max_lengths.append(req['length'])
             contexts.append(req['context'])
-        
+
         max_length = max(max_lengths)
         for key, vals in batch_items.items():
             batch_items[key] = np.array(vals)
         start = timer()
-        logger.info(f'Completed Preparing Batch')
+        logger.info('Completed Preparing Batch')
         output = self.network.generate(
             batch_items['tokens'], batch_items['lengths'], max_length, 
             {
@@ -153,7 +151,7 @@ class GPTJ:
                 "temp": batch_items['temp'],
             }
         )
-        logger.info(f'Completed Generation')
+        logger.info('Completed Generation')
         samples = []
         end_time = timer(start)
         for pred, ctx in zip(output[1][0][:, :, 0], contexts):
@@ -173,12 +171,14 @@ class GPTJ:
         return {'qid': self.qidx}
 
     def wait_for_queue(self, qid):
-        if not self.queue_ids.get(qid):
-            return {'Error': 'QID not found'}
-        return self.queue_ids[qid].get()
+        return (
+            self.queue_ids[qid].get()
+            if self.queue_ids.get(qid)
+            else {'Error': 'QID not found'}
+        )
 
     def background(self):
-        logger.info(f'Init Background')
+        logger.info('Init Background')
         maps.thread_resources.env = maps.ResourceEnv(maps.Mesh(self.devices, ('dp', 'mp')))
         while True:
             batch, qids = [], []
@@ -188,7 +188,7 @@ class GPTJ:
                     logger.info(f'Got Queue Item: {req}')
                     batch.append(req['item'])
                     qids.append(req['qidx'])
-                    
+
                 except Empty:
                     if len(batch):
                         break
